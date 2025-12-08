@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Monitor DHT ESP32</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+        body { font-family: Arial, sans-serif; text-align: center; margin-top: 50px; background-color: #f4f4f9; }
+        .data-container { display: inline-block; padding: 20px; border: 1px solid #ccc; border-radius: 8px; background-color: #fff; box-shadow: 0 4px 8px rgba(0,0,0,0.1); }
+        h1 { color: #333; }
+        .value { font-size: 3em; font-weight: bold; color: #007bff; margin-top: 10px; }
+        .label { font-size: 1.2em; color: #555; }
+        .status { margin-top: 20px; color: gray; }
+    </style>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/paho-mqtt/1.0.1/mqttws31.min.js" type="text/javascript"></script>
+</head>
+<body>
+
+    <h1>Monitorizare Climă ESP32-C3</h1>
+    <div class="data-container">
+        <div class="label">Temperatura:</div>
+        <div id="temperatura" class="value">--.-- °C</div>
+
+        <div class="label" style="margin-top: 15px;">Umiditatea:</div>
+        <div id="umiditate" class="value">--.-- %</div>
+    </div>
+    
+    <div class="status">
+        Status Conexiune: <span id="status">Deconectat</span>
+    </div>
+
+    <script>
+        // --- ⚠️ DATELE TALE DE CONEXIUNE (MODIFICĂ!) ⚠️ ---
+        const MQTT_HOST = "45529ea6f341410aa5a4fd3d6d0509b8.s1.eu.hivemq.cloud"; 
+        const MQTT_PORT = 8884; // Portul pentru MQTT over WebSockets (WSS/SSL) pe HiveMQ
+        const MQTT_USER = "esp_1";
+        const MQTT_PASS = "Oananebunamea12!";
+        const MQTT_TOPIC = "esp/device1/data";
+        
+        // --- Inițializare ---
+        const client = new Paho.MQTT.Client(
+            MQTT_HOST, 
+            MQTT_PORT, 
+            "/mqtt", 
+            "web_client_" + parseInt(Math.random() * 100, 10)
+        );
+
+        client.onConnectionLost = onConnectionLost;
+        client.onMessageArrived = onMessageArrived;
+        
+        connect();
+
+        function connect() {
+            document.getElementById("status").innerText = "Se conectează...";
+            client.connect({
+                userName: MQTT_USER,
+                password: MQTT_PASS,
+                useSSL: true, // Folosim SSL/WSS deoarece folosim portul 8884
+                onSuccess: onConnect,
+                onFailure: onFailure
+            });
+        }
+
+        function onConnect() {
+            document.getElementById("status").innerText = "Conectat la Broker (WSS)";
+            client.subscribe(MQTT_TOPIC);
+            console.log("Abonat la topic: " + MQTT_TOPIC);
+        }
+
+        function onFailure(responseObject) {
+            document.getElementById("status").innerText = "Eroare: " + responseObject.errorMessage;
+            console.log("Eroare de conexiune: " + responseObject.errorMessage);
+            setTimeout(connect, 5000); // Încearcă să te reconectezi
+        }
+
+        function onConnectionLost(responseObject) {
+            document.getElementById("status").innerText = "Conexiune Pierdută!";
+            if (responseObject.errorCode !== 0) {
+                console.log("onConnectionLost:" + responseObject.errorMessage);
+            }
+            setTimeout(connect, 5000);
+        }
+
+        function onMessageArrived(message) {
+            try {
+                const payload = message.payloadString;
+                const data = JSON.parse(payload);
+                
+                // Actualizează elementele HTML
+                document.getElementById("temperatura").innerText = data.temp.toFixed(2) + " °C";
+                document.getElementById("umiditate").innerText = data.humidity.toFixed(2) + " %";
+                
+                console.log("Date primite: " + payload);
+
+            } catch (e) {
+                console.error("Eroare la parsarea JSON: " + e);
+            }
+        }
+    </script>
+</body>
+</html>
