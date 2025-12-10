@@ -17,6 +17,7 @@
             --text-color: #ffffff;
             --accent-hot: #ff7675;
             --accent-wet: #74b9ff;
+            --accent-pump: #55efc4; 
         }
 
         body {
@@ -31,7 +32,6 @@
             color: var(--text-color);
         }
 
-        /* Titlul Principal */
         h1 {
             font-weight: 600;
             letter-spacing: 1px;
@@ -40,7 +40,6 @@
             font-size: 2rem;
         }
 
-        /* Containerul pentru Carduri */
         .dashboard {
             display: flex;
             gap: 20px;
@@ -50,7 +49,6 @@
             width: 90%;
         }
 
-        /* Stilul Cardurilor (Glassmorphism) */
         .card {
             background: var(--glass-bg);
             backdrop-filter: blur(12px);
@@ -68,7 +66,6 @@
             transform: translateY(-5px);
         }
 
-        /* Iconițele */
         .icon-box {
             font-size: 3rem;
             margin-bottom: 15px;
@@ -76,6 +73,7 @@
         
         .temp-icon { color: var(--accent-hot); filter: drop-shadow(0 0 10px rgba(255, 118, 117, 0.5)); }
         .hum-icon { color: var(--accent-wet); filter: drop-shadow(0 0 10px rgba(116, 185, 255, 0.5)); }
+        .pump-icon { color: var(--accent-pump); filter: drop-shadow(0 0 10px rgba(85, 239, 196, 0.5)); }
 
         .label {
             font-size: 1rem;
@@ -90,7 +88,31 @@
             font-weight: 600;
         }
 
-        /* Bara de Status de jos */
+        /* --- STIL BUTON POMPA --- */
+        .btn-pump {
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.4);
+            color: white;
+            padding: 10px 30px;
+            border-radius: 30px;
+            font-family: 'Poppins', sans-serif;
+            font-weight: 600;
+            font-size: 1.1rem;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            margin-top: 10px;
+        }
+        
+        .btn-pump:hover {
+            background: rgba(255, 255, 255, 0.25);
+        }
+
+        .btn-pump.active {
+            background: var(--accent-pump);
+            color: #2d3436;
+            box-shadow: 0 0 15px var(--accent-pump);
+        }
+
         .status-bar {
             margin-top: 40px;
             background: rgba(0, 0, 0, 0.3);
@@ -116,14 +138,12 @@
         .led.error { background-color: #d63031; box-shadow: 0 0 10px #d63031; }
         .led.connecting { background-color: #fdcb6e; box-shadow: 0 0 10px #fdcb6e; }
 
-        /* Responsive pentru mobile */
         @media (max-width: 600px) {
             .dashboard { flex-direction: column; align-items: center; }
             .card { width: 100%; max-width: 300px; }
             h1 { font-size: 1.5rem; }
         }
 
-        /* Animație la update */
         .pulse-update {
             animation: text-flash 0.5s ease-out;
         }
@@ -155,6 +175,14 @@
             <div class="label">Umiditate</div>
             <div id="umiditate" class="value">--%</div>
         </div>
+
+        <div class="card">
+            <div class="icon-box">
+                <i class="fas fa-water pump-icon"></i>
+            </div>
+            <div class="label">Control Pompă</div>
+            <button id="btn-pump" class="btn-pump" onclick="togglePump()">START</button>
+        </div>
     </div>
     
     <div class="status-bar">
@@ -168,9 +196,12 @@
         const MQTT_PORT = 8884;
         const MQTT_USER = "esp_1";
         const MQTT_PASS = "Oananebunamea12!";
-        const MQTT_TOPIC = "esp/device1/data";
+        const MQTT_TOPIC_DATA = "esp/device1/data";
+        const MQTT_TOPIC_CMD  = "esp32/cmd"; // Topic pentru comenzi
         
         // --- LOGICĂ ---
+        let isPumpOn = false;
+
         const client = new Paho.MQTT.Client(
             MQTT_HOST, 
             MQTT_PORT, 
@@ -183,12 +214,13 @@
         
         const statusText = document.getElementById("status-text");
         const statusLed = document.getElementById("led-status");
+        const pumpBtn = document.getElementById("btn-pump");
 
         connect();
 
         function setStatus(state, message) {
             statusText.innerText = message;
-            statusLed.className = "led " + state; // connected, error, connecting
+            statusLed.className = "led " + state; 
         }
 
         function connect() {
@@ -204,8 +236,8 @@
 
         function onConnect() {
             setStatus("connected", "Conectat & Online");
-            client.subscribe(MQTT_TOPIC);
-            console.log("Abonat la: " + MQTT_TOPIC);
+            client.subscribe(MQTT_TOPIC_DATA);
+            console.log("Abonat la: " + MQTT_TOPIC_DATA);
         }
 
         function onFailure(responseObject) {
@@ -223,30 +255,53 @@
         }
 
         function onMessageArrived(message) {
-            try {
-                const payload = message.payloadString;
-                const data = JSON.parse(payload);
-                
-                updateValue("temperatura", data.temp.toFixed(1) + " °C");
-                updateValue("umiditate", data.humidity.toFixed(1) + " %");
-                
-                // Efect vizual rapid pe LED la primirea datelor
-                statusLed.style.boxShadow = "0 0 15px #fff";
-                setTimeout(() => { statusLed.style.boxShadow = ""; }, 200);
+            if (message.destinationName === MQTT_TOPIC_DATA) {
+                try {
+                    const payload = message.payloadString;
+                    const data = JSON.parse(payload);
+                    
+                    updateValue("temperatura", data.temp.toFixed(1) + " °C");
+                    updateValue("umiditate", data.humidity.toFixed(1) + " %");
+                    
+                    statusLed.style.boxShadow = "0 0 15px #fff";
+                    setTimeout(() => { statusLed.style.boxShadow = ""; }, 200);
 
-            } catch (e) {
-                console.error("JSON Invalid: ", e);
+                } catch (e) {
+                    console.error("JSON Invalid: ", e);
+                }
             }
         }
 
         function updateValue(elementId, text) {
             const el = document.getElementById(elementId);
             el.innerText = text;
-            
-            // Re-trigger animația de update
             el.classList.remove("pulse-update");
-            void el.offsetWidth; // hack pentru restart CSS animation
+            void el.offsetWidth; 
             el.classList.add("pulse-update");
+        }
+
+        // --- NEW: LOGICA BUTON POMPA ---
+        function togglePump() {
+            if (!client.isConnected()) {
+                alert("Nu esti conectat la MQTT!");
+                return;
+            }
+
+            isPumpOn = !isPumpOn; // Inversam starea
+            
+            const command = isPumpOn ? "PUMP_ON" : "PUMP_OFF";
+            const message = new Paho.MQTT.Message(command);
+            message.destinationName = MQTT_TOPIC_CMD;
+            client.send(message);
+
+            // Update UI
+            if (isPumpOn) {
+                pumpBtn.innerText = "STOP";
+                pumpBtn.classList.add("active");
+            } else {
+                pumpBtn.innerText = "START";
+                pumpBtn.classList.remove("active");
+            }
         }
     </script>
 </body>
