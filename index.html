@@ -80,7 +80,7 @@
 
         .value { font-size: 2.5rem; font-weight: 600; }
 
-        /* Stil Butoane Pompa */
+        /* --- STILURI PENTRU BUTOANE POMPA --- */
         .btn-group {
             display: flex;
             gap: 10px;
@@ -167,7 +167,7 @@
                 <button class="btn btn-on" onclick="controlPump('PUMP_ON')">ON</button>
                 <button class="btn btn-off" onclick="controlPump('PUMP_OFF')">OFF</button>
             </div>
-            <div style="font-size: 0.8rem; margin-top: 10px; opacity: 0.6;">
+            <div style="font-size: 0.75rem; margin-top: 10px; opacity: 0.6;">
                 *Comanda merge doar când placa e trează
             </div>
         </div>
@@ -290,7 +290,7 @@
             timeText.innerText = timeString;
         }
 
-        // Functia pentru Control Pompa
+        // Functia pentru Control Pompa (READAUGATA)
         function controlPump(command) {
             message = new Paho.MQTT.Message(command);
             message.destinationName = TOPIC_CMD;
