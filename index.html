@@ -17,6 +17,7 @@
             --text-color: #ffffff;
             --accent-hot: #ff7675;
             --accent-wet: #74b9ff;
+            --accent-pump: #55efc4;
         }
 
         body {
@@ -61,17 +62,13 @@
             transition: transform 0.3s ease;
         }
 
-        .card:hover {
-            transform: translateY(-5px);
-        }
+        .card:hover { transform: translateY(-5px); }
 
-        .icon-box {
-            font-size: 3rem;
-            margin-bottom: 15px;
-        }
+        .icon-box { font-size: 3rem; margin-bottom: 15px; }
         
         .temp-icon { color: var(--accent-hot); filter: drop-shadow(0 0 10px rgba(255, 118, 117, 0.5)); }
         .hum-icon { color: var(--accent-wet); filter: drop-shadow(0 0 10px rgba(116, 185, 255, 0.5)); }
+        .pump-icon { color: var(--accent-pump); filter: drop-shadow(0 0 10px rgba(85, 239, 196, 0.5)); }
 
         .label {
             font-size: 1rem;
@@ -81,10 +78,31 @@
             margin-bottom: 10px;
         }
 
-        .value {
-            font-size: 2.5rem;
-            font-weight: 600;
+        .value { font-size: 2.5rem; font-weight: 600; }
+
+        /* Stil Butoane Pompa */
+        .btn-group {
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+            margin-top: 15px;
         }
+
+        .btn {
+            border: none;
+            padding: 10px 20px;
+            border-radius: 30px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: 0.3s;
+            width: 100%;
+        }
+
+        .btn-on { background: rgba(85, 239, 196, 0.2); color: #55efc4; border: 1px solid #55efc4; }
+        .btn-on:hover { background: #55efc4; color: #1e3c72; }
+
+        .btn-off { background: rgba(255, 118, 117, 0.2); color: #ff7675; border: 1px solid #ff7675; }
+        .btn-off:hover { background: #ff7675; color: white; }
 
         /* Bara de Status de jos */
         .status-bar {
@@ -111,20 +129,17 @@
         .led.active { background-color: #00b894; box-shadow: 0 0 10px #00b894; }
         .led.inactive { background-color: #d63031; }
 
-        @media (max-width: 600px) {
-            .dashboard { flex-direction: column; align-items: center; }
-            .card { width: 100%; max-width: 300px; }
-            h1 { font-size: 1.5rem; }
-        }
-
-        .pulse-update {
-            animation: text-flash 0.5s ease-out;
-        }
+        .pulse-update { animation: text-flash 0.5s ease-out; }
 
         @keyframes text-flash {
             0% { color: white; transform: scale(1); }
             50% { color: #ffeaa7; transform: scale(1.1); }
             100% { color: white; transform: scale(1); }
+        }
+
+        @media (max-width: 600px) {
+            .dashboard { flex-direction: column; align-items: center; }
+            .card { width: 100%; max-width: 300px; }
         }
     </style>
 </head>
@@ -134,25 +149,33 @@
 
     <div class="dashboard">
         <div class="card">
-            <div class="icon-box">
-                <i class="fas fa-temperature-high temp-icon"></i>
-            </div>
+            <div class="icon-box"><i class="fas fa-temperature-high temp-icon"></i></div>
             <div class="label">Temperatură</div>
             <div id="temperatura" class="value">--°C</div>
         </div>
 
         <div class="card">
-            <div class="icon-box">
-                <i class="fas fa-tint hum-icon"></i>
-            </div>
+            <div class="icon-box"><i class="fas fa-tint hum-icon"></i></div>
             <div class="label">Umiditate</div>
             <div id="umiditate" class="value">--%</div>
+        </div>
+
+        <div class="card">
+            <div class="icon-box"><i class="fas fa-power-off pump-icon"></i></div>
+            <div class="label">Control Pompă</div>
+            <div class="btn-group">
+                <button class="btn btn-on" onclick="controlPump('PUMP_ON')">ON</button>
+                <button class="btn btn-off" onclick="controlPump('PUMP_OFF')">OFF</button>
+            </div>
+            <div style="font-size: 0.8rem; margin-top: 10px; opacity: 0.6;">
+                *Comanda merge doar când placa e trează
+            </div>
         </div>
     </div>
     
     <div class="status-bar">
         <div id="led-status" class="led"></div>
-        <span id="time-text">Aștept date...</span>
+        <span id="time-text">Aștept conexiunea...</span>
     </div>
 
     <script>
@@ -161,16 +184,17 @@
         const MQTT_PORT = 8884;
         const MQTT_USER = "esp_1";
         const MQTT_PASS = "Oananebunamea12!";
-        const MQTT_TOPIC = "esp/device1/data";
         
-        // Variabila pentru a stoca momentul ultimei actualizari
+        const TOPIC_DATA = "esp/device1/data";
+        const TOPIC_CMD  = "esp32/cmd";
+        
         let lastUpdateDate = null;
 
         const client = new Paho.MQTT.Client(
             MQTT_HOST, 
             MQTT_PORT, 
             "/mqtt", 
-            "web_dashboard_" + parseInt(Math.random() * 1000, 10)
+            "web_" + parseInt(Math.random() * 1000, 10)
         );
 
         client.onConnectionLost = onConnectionLost;
@@ -181,8 +205,8 @@
 
         // Pornim conexiunea
         connect();
-
-        // Pornim ceasul care actualizeaza textul "Acum X minute"
+        
+        // Pornim timerul pentru textul "Acum X minute"
         setInterval(updateTimeAgo, 1000);
 
         function connect() {
@@ -199,25 +223,25 @@
         function onConnect() {
             console.log("Conectat!");
             statusLed.className = "led active";
-            client.subscribe(MQTT_TOPIC);
+            // Ne abonam pentru a primi datele
+            client.subscribe(TOPIC_DATA);
             
-            // Daca nu am primit inca date, afisam asta
             if (!lastUpdateDate) {
                 timeText.innerText = "Conectat. Caut ultimele date...";
             }
         }
 
         function onFailure(responseObject) {
-            console.log("Eroare conexiune: " + responseObject.errorMessage);
+            console.log("Eroare: " + responseObject.errorMessage);
             statusLed.className = "led inactive";
+            timeText.innerText = "Eroare conexiune. Reîncerc...";
             setTimeout(connect, 5000);
         }
 
         function onConnectionLost(responseObject) {
-            console.log("Conexiune pierdută.");
             statusLed.className = "led inactive";
             if (responseObject.errorCode !== 0) {
-                console.log("Motiv: " + responseObject.errorMessage);
+                console.log("Pierdut: " + responseObject.errorMessage);
             }
             setTimeout(connect, 5000);
         }
@@ -232,8 +256,6 @@
                 
                 // Setam momentul primirii datelor la ora curenta
                 lastUpdateDate = new Date();
-                
-                // Actualizam textul imediat
                 updateTimeAgo();
 
             } catch (e) {
@@ -249,28 +271,32 @@
             el.classList.add("pulse-update");
         }
 
-        // Functia care calculeaza timpul scurs
         function updateTimeAgo() {
             if (!lastUpdateDate) return;
 
             const now = new Date();
             const diffSeconds = Math.floor((now - lastUpdateDate) / 1000);
-
             let timeString = "";
 
-            if (diffSeconds < 5) {
-                timeString = "Actualizat: chiar acum";
-            } else if (diffSeconds < 60) {
-                timeString = `Actualizat: acum ${diffSeconds} secunde`;
-            } else if (diffSeconds < 3600) {
+            if (diffSeconds < 5) timeString = "Actualizat: chiar acum";
+            else if (diffSeconds < 60) timeString = `Actualizat: acum ${diffSeconds} secunde`;
+            else if (diffSeconds < 3600) {
                 const minutes = Math.floor(diffSeconds / 60);
                 timeString = `Actualizat: acum ${minutes} minute`;
             } else {
                 const hours = Math.floor(diffSeconds / 3600);
                 timeString = `Actualizat: acum ${hours} ore`;
             }
-
             timeText.innerText = timeString;
+        }
+
+        // Functia pentru Control Pompa
+        function controlPump(command) {
+            message = new Paho.MQTT.Message(command);
+            message.destinationName = TOPIC_CMD;
+            client.send(message);
+            console.log("Trimis comanda: " + command);
+            alert("Comandă trimisă! (Va fi executată doar dacă placa e trează)");
         }
     </script>
 </body>
