@@ -17,7 +17,6 @@
             --text-color: #ffffff;
             --accent-hot: #ff7675;
             --accent-wet: #74b9ff;
-            --accent-pump: #55efc4; 
         }
 
         body {
@@ -73,7 +72,6 @@
         
         .temp-icon { color: var(--accent-hot); filter: drop-shadow(0 0 10px rgba(255, 118, 117, 0.5)); }
         .hum-icon { color: var(--accent-wet); filter: drop-shadow(0 0 10px rgba(116, 185, 255, 0.5)); }
-        .pump-icon { color: var(--accent-pump); filter: drop-shadow(0 0 10px rgba(85, 239, 196, 0.5)); }
 
         .label {
             font-size: 1rem;
@@ -88,31 +86,7 @@
             font-weight: 600;
         }
 
-        /* --- STIL BUTON POMPA --- */
-        .btn-pump {
-            background: rgba(255, 255, 255, 0.1);
-            border: 1px solid rgba(255, 255, 255, 0.4);
-            color: white;
-            padding: 10px 30px;
-            border-radius: 30px;
-            font-family: 'Poppins', sans-serif;
-            font-weight: 600;
-            font-size: 1.1rem;
-            cursor: pointer;
-            transition: all 0.3s ease;
-            margin-top: 10px;
-        }
-        
-        .btn-pump:hover {
-            background: rgba(255, 255, 255, 0.25);
-        }
-
-        .btn-pump.active {
-            background: var(--accent-pump);
-            color: #2d3436;
-            box-shadow: 0 0 15px var(--accent-pump);
-        }
-
+        /* Bara de Status de jos */
         .status-bar {
             margin-top: 40px;
             background: rgba(0, 0, 0, 0.3);
@@ -126,17 +100,16 @@
         }
 
         .led {
-            width: 12px;
-            height: 12px;
+            width: 10px;
+            height: 10px;
             border-radius: 50%;
             background-color: #555;
             box-shadow: 0 0 5px #555;
-            transition: background-color 0.3s, box-shadow 0.3s;
+            transition: background-color 0.3s;
         }
 
-        .led.connected { background-color: #00b894; box-shadow: 0 0 10px #00b894; }
-        .led.error { background-color: #d63031; box-shadow: 0 0 10px #d63031; }
-        .led.connecting { background-color: #fdcb6e; box-shadow: 0 0 10px #fdcb6e; }
+        .led.active { background-color: #00b894; box-shadow: 0 0 10px #00b894; }
+        .led.inactive { background-color: #d63031; }
 
         @media (max-width: 600px) {
             .dashboard { flex-direction: column; align-items: center; }
@@ -175,32 +148,23 @@
             <div class="label">Umiditate</div>
             <div id="umiditate" class="value">--%</div>
         </div>
-
-        <div class="card">
-            <div class="icon-box">
-                <i class="fas fa-water pump-icon"></i>
-            </div>
-            <div class="label">Control Pompă</div>
-            <button id="btn-pump" class="btn-pump" onclick="togglePump()">START</button>
-        </div>
     </div>
     
     <div class="status-bar">
         <div id="led-status" class="led"></div>
-        <span id="status-text">Se inițializează...</span>
+        <span id="time-text">Aștept date...</span>
     </div>
 
     <script>
-        // --- ⚠️ CONFIGURARE MQTT ⚠️ ---
+        // --- CONFIGURARE MQTT ---
         const MQTT_HOST = "45529ea6f341410aa5a4fd3d6d0509b8.s1.eu.hivemq.cloud"; 
         const MQTT_PORT = 8884;
         const MQTT_USER = "esp_1";
         const MQTT_PASS = "Oananebunamea12!";
-        const MQTT_TOPIC_DATA = "esp/device1/data";
-        const MQTT_TOPIC_CMD  = "esp32/cmd"; // Topic pentru comenzi
+        const MQTT_TOPIC = "esp/device1/data";
         
-        // --- LOGICĂ ---
-        let isPumpOn = false;
+        // Variabila pentru a stoca momentul ultimei actualizari
+        let lastUpdateDate = null;
 
         const client = new Paho.MQTT.Client(
             MQTT_HOST, 
@@ -212,19 +176,17 @@
         client.onConnectionLost = onConnectionLost;
         client.onMessageArrived = onMessageArrived;
         
-        const statusText = document.getElementById("status-text");
+        const timeText = document.getElementById("time-text");
         const statusLed = document.getElementById("led-status");
-        const pumpBtn = document.getElementById("btn-pump");
 
+        // Pornim conexiunea
         connect();
 
-        function setStatus(state, message) {
-            statusText.innerText = message;
-            statusLed.className = "led " + state; 
-        }
+        // Pornim ceasul care actualizeaza textul "Acum X minute"
+        setInterval(updateTimeAgo, 1000);
 
         function connect() {
-            setStatus("connecting", "Se conectează la server...");
+            console.log("Conectare MQTT...");
             client.connect({
                 userName: MQTT_USER,
                 password: MQTT_PASS,
@@ -235,40 +197,47 @@
         }
 
         function onConnect() {
-            setStatus("connected", "Conectat & Online");
-            client.subscribe(MQTT_TOPIC_DATA);
-            console.log("Abonat la: " + MQTT_TOPIC_DATA);
+            console.log("Conectat!");
+            statusLed.className = "led active";
+            client.subscribe(MQTT_TOPIC);
+            
+            // Daca nu am primit inca date, afisam asta
+            if (!lastUpdateDate) {
+                timeText.innerText = "Conectat. Caut ultimele date...";
+            }
         }
 
         function onFailure(responseObject) {
-            setStatus("error", "Eroare conexiune!");
-            console.log("Eroare: " + responseObject.errorMessage);
+            console.log("Eroare conexiune: " + responseObject.errorMessage);
+            statusLed.className = "led inactive";
             setTimeout(connect, 5000);
         }
 
         function onConnectionLost(responseObject) {
-            setStatus("error", "Conexiune pierdută!");
+            console.log("Conexiune pierdută.");
+            statusLed.className = "led inactive";
             if (responseObject.errorCode !== 0) {
-                console.log("onConnectionLost:" + responseObject.errorMessage);
+                console.log("Motiv: " + responseObject.errorMessage);
             }
             setTimeout(connect, 5000);
         }
 
         function onMessageArrived(message) {
-            if (message.destinationName === MQTT_TOPIC_DATA) {
-                try {
-                    const payload = message.payloadString;
-                    const data = JSON.parse(payload);
-                    
-                    updateValue("temperatura", data.temp.toFixed(1) + " °C");
-                    updateValue("umiditate", data.humidity.toFixed(1) + " %");
-                    
-                    statusLed.style.boxShadow = "0 0 15px #fff";
-                    setTimeout(() => { statusLed.style.boxShadow = ""; }, 200);
+            try {
+                const payload = message.payloadString;
+                const data = JSON.parse(payload);
+                
+                updateValue("temperatura", data.temp.toFixed(1) + " °C");
+                updateValue("umiditate", data.humidity.toFixed(1) + " %");
+                
+                // Setam momentul primirii datelor la ora curenta
+                lastUpdateDate = new Date();
+                
+                // Actualizam textul imediat
+                updateTimeAgo();
 
-                } catch (e) {
-                    console.error("JSON Invalid: ", e);
-                }
+            } catch (e) {
+                console.error("JSON Invalid: ", e);
             }
         }
 
@@ -280,28 +249,28 @@
             el.classList.add("pulse-update");
         }
 
-        // --- NEW: LOGICA BUTON POMPA ---
-        function togglePump() {
-            if (!client.isConnected()) {
-                alert("Nu esti conectat la MQTT!");
-                return;
-            }
+        // Functia care calculeaza timpul scurs
+        function updateTimeAgo() {
+            if (!lastUpdateDate) return;
 
-            isPumpOn = !isPumpOn; // Inversam starea
-            
-            const command = isPumpOn ? "PUMP_ON" : "PUMP_OFF";
-            const message = new Paho.MQTT.Message(command);
-            message.destinationName = MQTT_TOPIC_CMD;
-            client.send(message);
+            const now = new Date();
+            const diffSeconds = Math.floor((now - lastUpdateDate) / 1000);
 
-            // Update UI
-            if (isPumpOn) {
-                pumpBtn.innerText = "STOP";
-                pumpBtn.classList.add("active");
+            let timeString = "";
+
+            if (diffSeconds < 5) {
+                timeString = "Actualizat: chiar acum";
+            } else if (diffSeconds < 60) {
+                timeString = `Actualizat: acum ${diffSeconds} secunde`;
+            } else if (diffSeconds < 3600) {
+                const minutes = Math.floor(diffSeconds / 60);
+                timeString = `Actualizat: acum ${minutes} minute`;
             } else {
-                pumpBtn.innerText = "START";
-                pumpBtn.classList.remove("active");
+                const hours = Math.floor(diffSeconds / 3600);
+                timeString = `Actualizat: acum ${hours} ore`;
             }
+
+            timeText.innerText = timeString;
         }
     </script>
 </body>
