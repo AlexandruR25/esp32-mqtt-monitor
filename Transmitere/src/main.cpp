@@ -1,130 +1,277 @@
-#include <WiFi.h>
-#include <WiFiClientSecure.h>
-#include <PubSubClient.h>
-#include <time.h>
-#include <DHT.h> // Include biblioteca DHT
+<!DOCTYPE html>
+<html lang="ro">
+<head>
+    <title>ESP32 Dashboard</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/paho-mqtt/1.0.1/mqttws31.min.js" type="text/javascript"></script>
 
-// --- Configurații Senzor ---
-#define DHTPIN 5        // Pinul ESP32 la care este conectat senzorul DHT
-#define DHTTYPE DHT11   // Poate fi DHT11, DHT22 sau AM2302
-DHT dht(DHTPIN, DHTTYPE);
-
-// --- Configurații Rețea și MQTT ---
-const char* ssid = "RDC";
-const char* wifi_password = "nustiucum25";
-
-const char* mqtt_server = "45529ea6f341410aa5a4fd3d6d0509b8.s1.eu.hivemq.cloud";
-const int mqtt_port = 8883;
-const char* mqtt_user = "esp_1";
-const char* mqtt_pass = "Oananebunamea12!";
-const char* publish_topic = "esp/device1/data";
-
-WiFiClientSecure net;
-PubSubClient client(net);
-
-// --- Funcții Rețea și Timp (Preluate din codul anterior) ---
-void setupTime() {
-    Serial.println("Setare timp NTP...");
-    configTime(0, 0, "pool.ntp.org", "time.google.com");
-    time_t now = time(nullptr);
-    while (now < 1600000000) { delay(500); now = time(nullptr); Serial.print("."); }
-    Serial.println();
-    struct tm timeinfo;
-    if (getLocalTime(&timeinfo)) {
-        Serial.print("Timp NTP setat: ");
-        Serial.println(&timeinfo, "%A, %B %d %Y %H:%M:%S");
-    }
-}
-
-void setup_wifi() {
-    delay(10);
-    Serial.print("Conectare la "); Serial.println(ssid);
-    WiFi.begin(ssid, wifi_password);
-    int max_attempts = 20;
-    while (WiFi.status() != WL_CONNECTED && max_attempts > 0) {
-        delay(500); Serial.print("."); max_attempts--;
-    }
-    Serial.println();
-    if (WiFi.status() == WL_CONNECTED) {
-        Serial.println("Conectat la Wi-Fi!");
-        Serial.print("Adresa IP: "); Serial.println(WiFi.localIP());
-    } else {
-        Serial.println("Eroare de conectare la Wi-Fi!");
-    }
-}
-
-void reconnect() {
-    while (!client.connected()) {
-        Serial.print("Încercare conexiune MQTT...");
-        String clientId = "esp32_publisher_" + String((uint32_t)ESP.getEfuseMac());
-        if (client.connect(clientId.c_str(), mqtt_user, mqtt_pass)) {
-            Serial.println("Conectat la MQTT!");
-        } else {
-            Serial.print("Eșec, codul de stare: "); Serial.print(client.state());
-            Serial.println(". Încerc din nou în 2 secunde...");
-            delay(2000);
-        }
-    }
-}
-
-// --- Funcții Setup și Loop ---
-
-void setup() {
-    Serial.begin(115200);
-    Serial.println("\n--- PORNIT ---");
-
-    setup_wifi();
-
-    if (WiFi.status() == WL_CONNECTED) {
-        setupTime();
-        net.setInsecure();
-        client.setServer(mqtt_server, mqtt_port);
-        // Inițializează senzorul DHT
-        dht.begin();
-        Serial.println("Senzor DHT inițializat.");
-    } else {
-        Serial.println("Nu se poate continua fără conexiune Wi-Fi.");
-    }
-}
-
-void loop() {
-    if (WiFi.status() != WL_CONNECTED) {
-        delay(5000);
-        setup_wifi();
-        return;
-    }
-
-    if (!client.connected()) {
-        reconnect();
-    }
-    client.loop();
-
-    static unsigned long last = 0;
-    // Citirea datelor la fiecare 5 secunde
-    if (millis() - last > 1000) {
-        last = millis();
-
-        // 1. Citirea datelor de la senzorul DHT
-        float h = dht.readHumidity();
-        float t = dht.readTemperature();
-
-        // 2. Verifică dacă citirea a eșuat
-        if (isnan(h) || isnan(t)) {
-            Serial.println("Eroare la citirea de la senzorul DHT!");
-            return; // Nu trimite date invalide
+    <style>
+        :root {
+            --glass-bg: rgba(255, 255, 255, 0.1);
+            --glass-border: 1px solid rgba(255, 255, 255, 0.2);
+            --text-color: #ffffff;
+            --accent-hot: #ff7675;
+            --accent-wet: #74b9ff;
         }
 
-        // 3. Formatează mesajul JSON
-        String msg = "{\"temp\":" + String(t, 2) + ",\"humidity\":" + String(h, 2) + "}";
-
-        // 4. Publică mesajul
-        if (client.publish(publish_topic, msg.c_str())) {
-            Serial.print("Publicat cu succes pe [");
-            Serial.print(publish_topic);
-            Serial.print("]: ");
-            Serial.println(msg);
-        } else {
-            Serial.println("Eroare la publicarea mesajului MQTT.");
+        body {
+            font-family: 'Poppins', sans-serif;
+            background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+            min-height: 100vh;
+            margin: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            color: var(--text-color);
         }
-    }
-}
+
+        h1 {
+            font-weight: 600;
+            letter-spacing: 1px;
+            margin-bottom: 30px;
+            text-shadow: 0 4px 10px rgba(0,0,0,0.3);
+            font-size: 2rem;
+        }
+
+        .dashboard {
+            display: flex;
+            gap: 20px;
+            flex-wrap: wrap;
+            justify-content: center;
+            max-width: 800px;
+            width: 90%;
+        }
+
+        .card {
+            background: var(--glass-bg);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: var(--glass-border);
+            border-radius: 20px;
+            padding: 30px;
+            width: 250px;
+            text-align: center;
+            box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.3);
+            transition: transform 0.3s ease;
+        }
+
+        .card:hover {
+            transform: translateY(-5px);
+        }
+
+        .icon-box {
+            font-size: 3rem;
+            margin-bottom: 15px;
+        }
+        
+        .temp-icon { color: var(--accent-hot); filter: drop-shadow(0 0 10px rgba(255, 118, 117, 0.5)); }
+        .hum-icon { color: var(--accent-wet); filter: drop-shadow(0 0 10px rgba(116, 185, 255, 0.5)); }
+
+        .label {
+            font-size: 1rem;
+            opacity: 0.8;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            margin-bottom: 10px;
+        }
+
+        .value {
+            font-size: 2.5rem;
+            font-weight: 600;
+        }
+
+        /* Bara de Status de jos */
+        .status-bar {
+            margin-top: 40px;
+            background: rgba(0, 0, 0, 0.3);
+            padding: 10px 20px;
+            border-radius: 50px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 0.9rem;
+            backdrop-filter: blur(5px);
+        }
+
+        .led {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background-color: #555;
+            box-shadow: 0 0 5px #555;
+            transition: background-color 0.3s;
+        }
+
+        .led.active { background-color: #00b894; box-shadow: 0 0 10px #00b894; }
+        .led.inactive { background-color: #d63031; }
+
+        @media (max-width: 600px) {
+            .dashboard { flex-direction: column; align-items: center; }
+            .card { width: 100%; max-width: 300px; }
+            h1 { font-size: 1.5rem; }
+        }
+
+        .pulse-update {
+            animation: text-flash 0.5s ease-out;
+        }
+
+        @keyframes text-flash {
+            0% { color: white; transform: scale(1); }
+            50% { color: #ffeaa7; transform: scale(1.1); }
+            100% { color: white; transform: scale(1); }
+        }
+    </style>
+</head>
+<body>
+
+    <h1><i class="fas fa-microchip"></i> ESP32 Monitor</h1>
+
+    <div class="dashboard">
+        <div class="card">
+            <div class="icon-box">
+                <i class="fas fa-temperature-high temp-icon"></i>
+            </div>
+            <div class="label">Temperatură</div>
+            <div id="temperatura" class="value">--°C</div>
+        </div>
+
+        <div class="card">
+            <div class="icon-box">
+                <i class="fas fa-tint hum-icon"></i>
+            </div>
+            <div class="label">Umiditate</div>
+            <div id="umiditate" class="value">--%</div>
+        </div>
+    </div>
+    
+    <div class="status-bar">
+        <div id="led-status" class="led"></div>
+        <span id="time-text">Aștept date...</span>
+    </div>
+
+    <script>
+        // --- CONFIGURARE MQTT ---
+        const MQTT_HOST = "45529ea6f341410aa5a4fd3d6d0509b8.s1.eu.hivemq.cloud"; 
+        const MQTT_PORT = 8884;
+        const MQTT_USER = "esp_1";
+        const MQTT_PASS = "Oananebunamea12!";
+        const MQTT_TOPIC = "esp/device1/data";
+        
+        // Variabila pentru a stoca momentul ultimei actualizari
+        let lastUpdateDate = null;
+
+        const client = new Paho.MQTT.Client(
+            MQTT_HOST, 
+            MQTT_PORT, 
+            "/mqtt", 
+            "web_dashboard_" + parseInt(Math.random() * 1000, 10)
+        );
+
+        client.onConnectionLost = onConnectionLost;
+        client.onMessageArrived = onMessageArrived;
+        
+        const timeText = document.getElementById("time-text");
+        const statusLed = document.getElementById("led-status");
+
+        // Pornim conexiunea
+        connect();
+
+        // Pornim ceasul care actualizeaza textul "Acum X minute"
+        setInterval(updateTimeAgo, 1000);
+
+        function connect() {
+            console.log("Conectare MQTT...");
+            client.connect({
+                userName: MQTT_USER,
+                password: MQTT_PASS,
+                useSSL: true,
+                onSuccess: onConnect,
+                onFailure: onFailure
+            });
+        }
+
+        function onConnect() {
+            console.log("Conectat!");
+            statusLed.className = "led active";
+            client.subscribe(MQTT_TOPIC);
+            
+            // Daca nu am primit inca date, afisam asta
+            if (!lastUpdateDate) {
+                timeText.innerText = "Conectat. Caut ultimele date...";
+            }
+        }
+
+        function onFailure(responseObject) {
+            console.log("Eroare conexiune: " + responseObject.errorMessage);
+            statusLed.className = "led inactive";
+            setTimeout(connect, 5000);
+        }
+
+        function onConnectionLost(responseObject) {
+            console.log("Conexiune pierdută.");
+            statusLed.className = "led inactive";
+            if (responseObject.errorCode !== 0) {
+                console.log("Motiv: " + responseObject.errorMessage);
+            }
+            setTimeout(connect, 5000);
+        }
+
+        function onMessageArrived(message) {
+            try {
+                const payload = message.payloadString;
+                const data = JSON.parse(payload);
+                
+                updateValue("temperatura", data.temp.toFixed(1) + " °C");
+                updateValue("umiditate", data.humidity.toFixed(1) + " %");
+                
+                // Setam momentul primirii datelor la ora curenta
+                lastUpdateDate = new Date();
+                
+                // Actualizam textul imediat
+                updateTimeAgo();
+
+            } catch (e) {
+                console.error("JSON Invalid: ", e);
+            }
+        }
+
+        function updateValue(elementId, text) {
+            const el = document.getElementById(elementId);
+            el.innerText = text;
+            el.classList.remove("pulse-update");
+            void el.offsetWidth; 
+            el.classList.add("pulse-update");
+        }
+
+        // Functia care calculeaza timpul scurs
+        function updateTimeAgo() {
+            if (!lastUpdateDate) return;
+
+            const now = new Date();
+            const diffSeconds = Math.floor((now - lastUpdateDate) / 1000);
+
+            let timeString = "";
+
+            if (diffSeconds < 5) {
+                timeString = "Actualizat: chiar acum";
+            } else if (diffSeconds < 60) {
+                timeString = `Actualizat: acum ${diffSeconds} secunde`;
+            } else if (diffSeconds < 3600) {
+                const minutes = Math.floor(diffSeconds / 60);
+                timeString = `Actualizat: acum ${minutes} minute`;
+            } else {
+                const hours = Math.floor(diffSeconds / 3600);
+                timeString = `Actualizat: acum ${hours} ore`;
+            }
+
+            timeText.innerText = timeString;
+        }
+    </script>
+</body>
+</html>
