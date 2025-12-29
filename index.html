@@ -313,12 +313,18 @@
                     if(data.humidity) updateValue("umiditate", data.humidity.toFixed(1) + " %");
                     
                     if(data.soil) {
-                        let procent = 100 - ( (data.soil / 4095) * 100 );
+                        const valoareUscat = 2047; // Valoarea cand e in aer (0%)
+                        const valoareUd = 880;     // Valoarea cand e in apa (100%)
+
+                        // Formula de mapare inversă
+                        let procent = ( (valoareUscat - data.soil) / (valoareUscat - valoareUd) ) * 100;
+
+                        // Siguranță (să nu afișeze -5% sau 105%)
                         if (procent < 0) procent = 0;
                         if (procent > 100) procent = 100;
+                        
                         updateValue("sol", procent.toFixed(0) + " %");
                     }
-
                     // --- AICI Salvăm ora când am primit datele ---
                     lastUpdateTimestamp = Date.now();
                     updateLastSeenText(); // Actualizăm textul imediat
@@ -389,3 +395,4 @@
     </script>
 </body>
 </html>
+
