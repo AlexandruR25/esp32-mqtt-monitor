@@ -11,7 +11,7 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/paho-mqtt/1.0.1/mqttws31.min.js" type="text/javascript"></script>
 
     <style>
-        /* --- STILURILE RAMAN NESCHIMBATE --- */
+        /* --- STILURI GENERALE --- */
         :root {
             --glass-bg: rgba(255, 255, 255, 0.1);
             --glass-border: 1px solid rgba(255, 255, 255, 0.2);
@@ -75,32 +75,55 @@
         .label { font-size: 1rem; opacity: 0.8; text-transform: uppercase; margin-bottom: 10px; }
         .value { font-size: 2.5rem; font-weight: 600; }
 
-        .btn-pump {
-            background: rgba(255, 255, 255, 0.1);
-            border: 1px solid rgba(255, 255, 255, 0.4);
+        /* --- STIL MENIU DROPDOWN --- */
+        .custom-select {
+            width: 100%;
+            padding: 12px;
+            margin-bottom: 15px;
+            background: rgba(0, 0, 0, 0.3);
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            border-radius: 10px;
             color: white;
-            padding: 10px 30px;
+            font-size: 1rem;
+            font-family: 'Poppins', sans-serif;
+            cursor: pointer;
+            appearance: none; /* Ascunde săgeata default */
+            outline: none;
+            text-align: center;
+        }
+        
+        .custom-select option {
+            background-color: #2d3436;
+            color: white;
+        }
+
+        /* --- STIL BUTON TRIMITE --- */
+        .btn-pump {
+            background: var(--accent-pump);
+            color: #2d3436;
+            border: none;
+            padding: 12px 30px;
             border-radius: 30px;
             font-family: 'Poppins', sans-serif;
             font-weight: 600;
-            font-size: 1.1rem;
+            font-size: 1rem;
             cursor: pointer;
             transition: all 0.3s ease;
-            margin-top: 10px;
             width: 100%;
+            box-shadow: 0 0 15px rgba(85, 239, 196, 0.4);
         }
         
-        .btn-pump:hover { background: rgba(255, 255, 255, 0.25); }
-        .btn-pump.active { background: var(--accent-pump); color: #2d3436; box-shadow: 0 0 15px var(--accent-pump); border-color: var(--accent-pump); }
-        .btn-pump.loading { background: rgba(0, 0, 0, 0.5); color: #ccc; cursor: not-allowed; border-style: dashed; }
-
-        /* Stil special pentru butonul programat (Portocaliu) */
-        .btn-schedule {
-            background: rgba(225, 112, 85, 0.8);
-            border-color: rgba(225, 112, 85, 1);
-            font-size: 0.9rem;
+        .btn-pump:hover { 
+            background: #fff; 
+            transform: scale(1.05);
         }
-        .btn-schedule:hover { background: rgba(225, 112, 85, 1); }
+
+        .btn-pump:disabled {
+            background: rgba(255,255,255,0.2);
+            color: #ccc;
+            cursor: not-allowed;
+            box-shadow: none;
+        }
 
         .status-bar {
             margin-top: 40px;
@@ -138,13 +161,13 @@
     <div class="dashboard">
         <div class="card">
             <div class="icon-box"><i class="fas fa-temperature-high temp-icon"></i></div>
-            <div class="label">Temperatură (Aer)</div>
+            <div class="label">Temperatură</div>
             <div id="temperatura" class="value">--°C</div>
         </div>
 
         <div class="card">
             <div class="icon-box"><i class="fas fa-tint hum-icon"></i></div>
-            <div class="label">Umiditate (Aer)</div>
+            <div class="label">Umiditate Aer</div>
             <div id="umiditate" class="value">--%</div>
         </div>
 
@@ -156,13 +179,19 @@
 
         <div class="card">
             <div class="icon-box"><i class="fas fa-water pump-icon"></i></div>
-            <div class="label">Control Pompă</div>
+            <div class="label">Programare Udare</div>
             
-            <button id="btn-pump" class="btn-pump" onclick="togglePump()">START MANUAL</button>
+            <select id="water-duration" class="custom-select">
+                <option value="PUMP_2SEC">Udare 2 Secunde</option>
+                <option value="PUMP_5SEC" selected>Udare 5 Secunde</option>
+                <option value="PUMP_10SEC">Udare 10 Secunde</option>
+            </select>
             
-            <button id="btn-5sec" class="btn-pump btn-schedule" onclick="scheduleWatering()">
-                <i class="fas fa-clock"></i> UDARE 5 SEC
+            <button id="btn-send" class="btn-pump" onclick="sendWateringCommand()">
+                TRIMITE COMANDA
             </button>
+            
+            <div id="pump-status" style="margin-top:10px; font-size:0.8rem; color:#aaa;">Pompă Oprită</div>
         </div>
     </div>
     
@@ -178,14 +207,11 @@
         const MQTT_USER = "esp_1";
         const MQTT_PASS = "Oananebunamea12!";
         
-        // --- DEFINIM CELE DOUA TOPIC-URI DIFERITE ---
-        const MQTT_TOPIC_SOL     = "esp/device1/data"; // De la ESP 1 (Sol + Pompa)
-        const MQTT_TOPIC_AER     = "esp/device2/data"; // De la ESP 2 (Temp + Umiditate Aer)
-        
+        const MQTT_TOPIC_SOL     = "esp/device1/data"; 
+        const MQTT_TOPIC_AER     = "esp/device2/data"; 
         const MQTT_TOPIC_CMD     = "esp32/cmd"; 
         const MQTT_TOPIC_CONFIRM = "esp/device1/confirm";
         
-        let currentPumpState = false;
         let lastUpdateTimestamp = null;
 
         const client = new Paho.MQTT.Client(
@@ -200,7 +226,8 @@
         
         const statusText = document.getElementById("status-text");
         const statusLed = document.getElementById("led-status");
-        const pumpBtn = document.getElementById("btn-pump");
+        const sendBtn = document.getElementById("btn-send");
+        const pumpStatusLabel = document.getElementById("pump-status");
 
         setInterval(updateLastSeenText, 30000); 
 
@@ -235,8 +262,6 @@
 
         function onConnect() {
             setStatus("connected", "Conectat. Aștept date...");
-            
-            // --- NE ABONAM LA TOATE ---
             client.subscribe(MQTT_TOPIC_SOL);
             client.subscribe(MQTT_TOPIC_AER);
             client.subscribe(MQTT_TOPIC_CONFIRM);
@@ -245,7 +270,6 @@
 
         function onFailure(responseObject) {
             setStatus("error", "Eroare conexiune!");
-            console.log("Eroare: " + responseObject.errorMessage);
             setTimeout(connect, 5000);
         }
 
@@ -261,50 +285,34 @@
             try {
                 const data = JSON.parse(payload);
                 
-                // CAZUL 1: DATE DE LA ESP 1 (SOL & POMPA)
+                // DATA SOL
                 if (topic === MQTT_TOPIC_SOL) {
-                    if(data.soil_pct !== undefined) {
-                        updateValue("sol", parseInt(data.soil_pct) + " %");
+                    if(data.soil_pct !== undefined) updateValue("sol", parseInt(data.soil_pct) + " %");
+                    if(data.pump !== undefined) updatePumpStatusLabel(data.pump == 1 || data.pump === true);
+                    markUpdate();
+                }
+                // DATA AER
+                else if (topic === MQTT_TOPIC_AER) {
+                    if(data.temp !== undefined) updateValue("temperatura", parseFloat(data.temp).toFixed(1) + " °C");
+                    if(data.humidity !== undefined) updateValue("umiditate", parseFloat(data.humidity).toFixed(1) + " %");
+                    markUpdate();
+                }
+                // CONFIRMARI
+                else if (topic === MQTT_TOPIC_CONFIRM) {
+                    if (data.status.includes("ON") || data.status.includes("START")) {
+                        updatePumpStatusLabel(true);
+                    } else {
+                        updatePumpStatusLabel(false);
                     }
                     
-                    if(data.pump !== undefined) {
-                        const isPumpOn = (String(data.pump) === "1" || data.pump === true);
-                        if (isPumpOn !== currentPumpState) {
-                            currentPumpState = isPumpOn;
-                            setPumpButtonUI(isPumpOn ? "ON" : "OFF");
-                        }
-                    }
-                    markUpdate();
-                }
-
-                // CAZUL 2: DATE DE LA ESP 2 (AER)
-                else if (topic === MQTT_TOPIC_AER) {
-                    if(data.temp !== undefined) {
-                        updateValue("temperatura", parseFloat(data.temp).toFixed(1) + " °C");
-                    }
-                    if(data.humidity !== undefined) {
-                        updateValue("umiditate", parseFloat(data.humidity).toFixed(1) + " %");
-                    }
-                    markUpdate();
-                }
-
-                // CAZUL 3: CONFIRMARI POMPA (Manual sau Programat)
-                else if (topic === MQTT_TOPIC_CONFIRM) {
-                    // Pompa pornita (fie manual, fie de programul de 5 sec)
-                    if (data.status === "CONFIRMED_ON" || data.status === "MANUAL_ON" || data.status === "PROGRAMMED_START") {
-                        currentPumpState = true;
-                        setPumpButtonUI("ON");
-                    } 
-                    // Pompa oprita
-                    else if (data.status === "CONFIRMED_OFF" || data.status === "MANUAL_OFF" || data.status === "PROGRAMMED_DONE") {
-                        currentPumpState = false;
-                        setPumpButtonUI("OFF");
+                    // Daca primim confirmare ca s-a terminat programul, reactivam butonul
+                    if (data.status === "PROGRAMMED_DONE") {
+                        sendBtn.disabled = false;
+                        sendBtn.innerText = "TRIMITE COMANDA";
                     }
                 }
 
-            } catch (e) {
-                console.error("Eroare JSON: ", e);
-            }
+            } catch (e) { console.error(e); }
         }
 
         function markUpdate() {
@@ -322,59 +330,48 @@
             el.classList.add("pulse-update");
         }
 
-        // --- FUNCTIA VECHE: START/STOP MANUAL ---
-        function togglePump() {
-            if (!client.isConnected()) {
-                alert("Nu ești conectat la MQTT!");
-                return;
+        function updatePumpStatusLabel(isOn) {
+            if(isOn) {
+                pumpStatusLabel.innerText = "POMPĂ PORNITĂ";
+                pumpStatusLabel.style.color = "#55efc4";
+                pumpStatusLabel.style.fontWeight = "bold";
+            } else {
+                pumpStatusLabel.innerText = "Pompă Oprită";
+                pumpStatusLabel.style.color = "#aaa";
+                pumpStatusLabel.style.fontWeight = "normal";
             }
-            const command = currentPumpState ? "PUMP_OFF" : "PUMP_ON";
-            const message = new Paho.MQTT.Message(command);
-            message.destinationName = MQTT_TOPIC_CMD;
-            // La manual NU folosim retained de obicei, vrem actiune acum
-            client.send(message);
-            setPumpButtonUI("LOADING");
         }
 
-        // --- FUNCTIA NOUA: PROGRAMARE 5 SECUNDE ---
-        function scheduleWatering() {
+        // --- FUNCTIA NOUA DE PROGRAMARE ---
+        function sendWateringCommand() {
             if (!client.isConnected()) {
                 alert("Nu ești conectat la MQTT!");
                 return;
             }
 
-            if(confirm("Programare udare 5 secunde la următoarea trezire a plăcuței?")) {
-                const message = new Paho.MQTT.Message("PUMP_5SEC");
+            // Luam valoarea selectata din meniu (PUMP_2SEC, PUMP_5SEC, etc.)
+            const select = document.getElementById("water-duration");
+            const command = select.value;
+            const text = select.options[select.selectedIndex].text;
+
+            if(confirm("Confirmi programarea: " + text + "?\n(Se va executa la următoarea trezire a plăcuței)")) {
+                
+                const message = new Paho.MQTT.Message(command);
                 message.destinationName = MQTT_TOPIC_CMD;
                 
-                // CRITIC: Retained = true
-                // Mesajul sta pe server pana se trezeste placuta
+                // RETINEM MESAJUL PANA SE TREZESTE PLACUTA
                 message.retained = true; 
                 
                 client.send(message);
                 
-                alert("Comandă trimisă! Plăcuța va uda 5 secunde când se trezește.");
-            }
-        }
-
-        function setPumpButtonUI(state) {
-            if (state === "ON") {
-                pumpBtn.innerText = "POMPĂ PORNITĂ";
-                pumpBtn.classList.remove("loading");
-                pumpBtn.classList.add("active");
-                pumpBtn.disabled = false;
-            } 
-            else if (state === "OFF") {
-                pumpBtn.innerText = "START MANUAL";
-                pumpBtn.classList.remove("active");
-                pumpBtn.classList.remove("loading");
-                pumpBtn.disabled = false;
-            } 
-            else if (state === "LOADING") {
-                pumpBtn.innerText = "Se procesează...";
-                pumpBtn.classList.remove("active");
-                pumpBtn.classList.add("loading");
-                pumpBtn.disabled = true; 
+                // Feedback vizual
+                sendBtn.disabled = true;
+                sendBtn.innerText = "PROGRAMAT...";
+                
+                setTimeout(() => {
+                    sendBtn.disabled = false;
+                    sendBtn.innerText = "TRIMITE COMANDA";
+                }, 3000);
             }
         }
     </script>
