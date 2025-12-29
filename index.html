@@ -94,6 +94,14 @@
         .btn-pump.active { background: var(--accent-pump); color: #2d3436; box-shadow: 0 0 15px var(--accent-pump); border-color: var(--accent-pump); }
         .btn-pump.loading { background: rgba(0, 0, 0, 0.5); color: #ccc; cursor: not-allowed; border-style: dashed; }
 
+        /* Stil special pentru butonul programat (Portocaliu) */
+        .btn-schedule {
+            background: rgba(225, 112, 85, 0.8);
+            border-color: rgba(225, 112, 85, 1);
+            font-size: 0.9rem;
+        }
+        .btn-schedule:hover { background: rgba(225, 112, 85, 1); }
+
         .status-bar {
             margin-top: 40px;
             background: rgba(0, 0, 0, 0.3);
@@ -149,7 +157,12 @@
         <div class="card">
             <div class="icon-box"><i class="fas fa-water pump-icon"></i></div>
             <div class="label">Control Pompă</div>
-            <button id="btn-pump" class="btn-pump" onclick="togglePump()">START</button>
+            
+            <button id="btn-pump" class="btn-pump" onclick="togglePump()">START MANUAL</button>
+            
+            <button id="btn-5sec" class="btn-pump btn-schedule" onclick="scheduleWatering()">
+                <i class="fas fa-clock"></i> UDARE 5 SEC
+            </button>
         </div>
     </div>
     
@@ -221,14 +234,13 @@
         }
 
         function onConnect() {
-            setStatus("connected", "Conectat. Aștept date de la senzori...");
+            setStatus("connected", "Conectat. Aștept date...");
             
-            // --- NE ABONAM LA AMBELE ESP-URI ---
+            // --- NE ABONAM LA TOATE ---
             client.subscribe(MQTT_TOPIC_SOL);
             client.subscribe(MQTT_TOPIC_AER);
-            
             client.subscribe(MQTT_TOPIC_CONFIRM);
-            console.log("Abonat la: " + MQTT_TOPIC_SOL + " si " + MQTT_TOPIC_AER);
+            console.log("Abonat la topics.");
         }
 
         function onFailure(responseObject) {
@@ -242,7 +254,6 @@
             setTimeout(connect, 5000);
         }
 
-        // --- AICI ESTE SCHIMBAREA MAJORA ---
         function onMessageArrived(message) {
             const topic = message.destinationName;
             const payload = message.payloadString;
@@ -252,12 +263,10 @@
                 
                 // CAZUL 1: DATE DE LA ESP 1 (SOL & POMPA)
                 if (topic === MQTT_TOPIC_SOL) {
-                    // Actualizam umiditatea solului (folosim soil_pct primit direct)
                     if(data.soil_pct !== undefined) {
                         updateValue("sol", parseInt(data.soil_pct) + " %");
                     }
                     
-                    // Actualizam starea pompei daca ESP-ul trimite starea curenta
                     if(data.pump !== undefined) {
                         const isPumpOn = (String(data.pump) === "1" || data.pump === true);
                         if (isPumpOn !== currentPumpState) {
@@ -265,11 +274,10 @@
                             setPumpButtonUI(isPumpOn ? "ON" : "OFF");
                         }
                     }
-
                     markUpdate();
                 }
 
-                // CAZUL 2: DATE DE LA ESP 2 (AER - TEMP & UMIDITATE)
+                // CAZUL 2: DATE DE LA ESP 2 (AER)
                 else if (topic === MQTT_TOPIC_AER) {
                     if(data.temp !== undefined) {
                         updateValue("temperatura", parseFloat(data.temp).toFixed(1) + " °C");
@@ -280,13 +288,15 @@
                     markUpdate();
                 }
 
-                // CAZUL 3: CONFIRMARE EXPLICITA POMPA
+                // CAZUL 3: CONFIRMARI POMPA (Manual sau Programat)
                 else if (topic === MQTT_TOPIC_CONFIRM) {
-                    if (data.status === "CONFIRMED_ON") {
+                    // Pompa pornita (fie manual, fie de programul de 5 sec)
+                    if (data.status === "CONFIRMED_ON" || data.status === "MANUAL_ON" || data.status === "PROGRAMMED_START") {
                         currentPumpState = true;
                         setPumpButtonUI("ON");
                     } 
-                    else if (data.status === "CONFIRMED_OFF") {
+                    // Pompa oprita
+                    else if (data.status === "CONFIRMED_OFF" || data.status === "MANUAL_OFF" || data.status === "PROGRAMMED_DONE") {
                         currentPumpState = false;
                         setPumpButtonUI("OFF");
                     }
@@ -300,7 +310,6 @@
         function markUpdate() {
             lastUpdateTimestamp = Date.now();
             updateLastSeenText();
-            // Blink Led Scurt
             statusLed.style.boxShadow = "0 0 15px #fff";
             setTimeout(() => { statusLed.style.boxShadow = ""; }, 200);
         }
@@ -313,6 +322,7 @@
             el.classList.add("pulse-update");
         }
 
+        // --- FUNCTIA VECHE: START/STOP MANUAL ---
         function togglePump() {
             if (!client.isConnected()) {
                 alert("Nu ești conectat la MQTT!");
@@ -321,8 +331,30 @@
             const command = currentPumpState ? "PUMP_OFF" : "PUMP_ON";
             const message = new Paho.MQTT.Message(command);
             message.destinationName = MQTT_TOPIC_CMD;
+            // La manual NU folosim retained de obicei, vrem actiune acum
             client.send(message);
             setPumpButtonUI("LOADING");
+        }
+
+        // --- FUNCTIA NOUA: PROGRAMARE 5 SECUNDE ---
+        function scheduleWatering() {
+            if (!client.isConnected()) {
+                alert("Nu ești conectat la MQTT!");
+                return;
+            }
+
+            if(confirm("Programare udare 5 secunde la următoarea trezire a plăcuței?")) {
+                const message = new Paho.MQTT.Message("PUMP_5SEC");
+                message.destinationName = MQTT_TOPIC_CMD;
+                
+                // CRITIC: Retained = true
+                // Mesajul sta pe server pana se trezeste placuta
+                message.retained = true; 
+                
+                client.send(message);
+                
+                alert("Comandă trimisă! Plăcuța va uda 5 secunde când se trezește.");
+            }
         }
 
         function setPumpButtonUI(state) {
@@ -333,7 +365,7 @@
                 pumpBtn.disabled = false;
             } 
             else if (state === "OFF") {
-                pumpBtn.innerText = "START POMPĂ";
+                pumpBtn.innerText = "START MANUAL";
                 pumpBtn.classList.remove("active");
                 pumpBtn.classList.remove("loading");
                 pumpBtn.disabled = false;
