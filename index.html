@@ -17,6 +17,7 @@
             --text-color: #ffffff;
             --accent-hot: #ff7675;
             --accent-wet: #74b9ff;
+            --accent-soil: #fdcb6e; /* Culoare nouă pentru sol */
             --accent-pump: #55efc4; 
         }
 
@@ -73,6 +74,7 @@
         
         .temp-icon { color: var(--accent-hot); filter: drop-shadow(0 0 10px rgba(255, 118, 117, 0.5)); }
         .hum-icon { color: var(--accent-wet); filter: drop-shadow(0 0 10px rgba(116, 185, 255, 0.5)); }
+        .soil-icon { color: var(--accent-soil); filter: drop-shadow(0 0 10px rgba(253, 203, 110, 0.5)); } /* Iconita Sol */
         .pump-icon { color: var(--accent-pump); filter: drop-shadow(0 0 10px rgba(85, 239, 196, 0.5)); }
 
         .label {
@@ -101,16 +103,27 @@
             cursor: pointer;
             transition: all 0.3s ease;
             margin-top: 10px;
+            width: 100%;
         }
         
         .btn-pump:hover {
             background: rgba(255, 255, 255, 0.25);
         }
 
+        /* Stare activă (Verde) */
         .btn-pump.active {
             background: var(--accent-pump);
             color: #2d3436;
             box-shadow: 0 0 15px var(--accent-pump);
+            border-color: var(--accent-pump);
+        }
+
+        /* Stare așteptare (Gri/Loading) */
+        .btn-pump.loading {
+            background: rgba(0, 0, 0, 0.5);
+            color: #ccc;
+            cursor: not-allowed;
+            border-style: dashed;
         }
 
         .status-bar {
@@ -172,8 +185,16 @@
             <div class="icon-box">
                 <i class="fas fa-tint hum-icon"></i>
             </div>
-            <div class="label">Umiditate</div>
+            <div class="label">Umiditate Aer</div>
             <div id="umiditate" class="value">--%</div>
+        </div>
+
+        <div class="card">
+            <div class="icon-box">
+                <i class="fas fa-seedling soil-icon"></i>
+            </div>
+            <div class="label">Umiditate Sol</div>
+            <div id="sol" class="value">--%</div>
         </div>
 
         <div class="card">
@@ -196,11 +217,13 @@
         const MQTT_PORT = 8884;
         const MQTT_USER = "esp_1";
         const MQTT_PASS = "Oananebunamea12!";
-        const MQTT_TOPIC_DATA = "esp/device1/data";
-        const MQTT_TOPIC_CMD  = "esp32/cmd"; // Topic pentru comenzi
+        
+        const MQTT_TOPIC_DATA    = "esp/device1/data";
+        const MQTT_TOPIC_CMD     = "esp32/cmd"; 
+        const MQTT_TOPIC_CONFIRM = "esp/device1/confirm"; // Noul topic de confirmare
         
         // --- LOGICĂ ---
-        let isPumpOn = false;
+        let currentPumpState = false; // "false" inseamna oprit, "true" pornit
 
         const client = new Paho.MQTT.Client(
             MQTT_HOST, 
@@ -236,8 +259,12 @@
 
         function onConnect() {
             setStatus("connected", "Conectat & Online");
+            
+            // Ne abonam la DATE si la CONFIRMARI
             client.subscribe(MQTT_TOPIC_DATA);
-            console.log("Abonat la: " + MQTT_TOPIC_DATA);
+            client.subscribe(MQTT_TOPIC_CONFIRM);
+            
+            console.log("Abonat la topics.");
         }
 
         function onFailure(responseObject) {
@@ -255,20 +282,50 @@
         }
 
         function onMessageArrived(message) {
-            if (message.destinationName === MQTT_TOPIC_DATA) {
-                try {
-                    const payload = message.payloadString;
+            const topic = message.destinationName;
+            const payload = message.payloadString;
+
+            try {
+                // CAZUL 1: Primim date senzori (Temp, Hum, SOL)
+                if (topic === MQTT_TOPIC_DATA) {
                     const data = JSON.parse(payload);
                     
-                    updateValue("temperatura", data.temp.toFixed(1) + " °C");
-                    updateValue("umiditate", data.humidity.toFixed(1) + " %");
+                    // Update Temperatura & Umiditate Aer
+                    if(data.temp) updateValue("temperatura", data.temp.toFixed(1) + " °C");
+                    if(data.humidity) updateValue("umiditate", data.humidity.toFixed(1) + " %");
                     
+                    // Update Umiditate SOL (Convertim din 0-4095 in %)
+                    if(data.soil) {
+                        // Formula: Inversam (4095 e uscat=0%, 0 e ud=100%)
+                        // Ajusteaza 4095 daca senzorul tau are alt maxim in aer
+                        let procent = 100 - ( (data.soil / 4095) * 100 );
+                        if (procent < 0) procent = 0;
+                        if (procent > 100) procent = 100;
+                        
+                        updateValue("sol", procent.toFixed(0) + " %");
+                    }
+
+                    // Blink Led
                     statusLed.style.boxShadow = "0 0 15px #fff";
                     setTimeout(() => { statusLed.style.boxShadow = ""; }, 200);
-
-                } catch (e) {
-                    console.error("JSON Invalid: ", e);
+                } 
+                
+                // CAZUL 2: Primim CONFIRMARE POMPA
+                else if (topic === MQTT_TOPIC_CONFIRM) {
+                    const confirmData = JSON.parse(payload);
+                    
+                    if (confirmData.status === "CONFIRMED_ON") {
+                        currentPumpState = true;
+                        setPumpButtonUI("ON");
+                    } 
+                    else if (confirmData.status === "CONFIRMED_OFF") {
+                        currentPumpState = false;
+                        setPumpButtonUI("OFF");
+                    }
                 }
+
+            } catch (e) {
+                console.error("Eroare procesare mesaj: ", e);
             }
         }
 
@@ -280,27 +337,43 @@
             el.classList.add("pulse-update");
         }
 
-        // --- NEW: LOGICA BUTON POMPA ---
+        // --- UPDATE: Logica Buton cu Asteptare ---
         function togglePump() {
             if (!client.isConnected()) {
-                alert("Nu esti conectat la MQTT!");
+                alert("Nu ești conectat la MQTT!");
                 return;
             }
 
-            isPumpOn = !isPumpOn; // Inversam starea
-            
-            const command = isPumpOn ? "PUMP_ON" : "PUMP_OFF";
+            // 1. Determinam comanda opusa starii curente
+            const command = currentPumpState ? "PUMP_OFF" : "PUMP_ON";
+
+            // 2. Trimitem comanda
             const message = new Paho.MQTT.Message(command);
             message.destinationName = MQTT_TOPIC_CMD;
             client.send(message);
 
-            // Update UI
-            if (isPumpOn) {
-                pumpBtn.innerText = "STOP";
+            // 3. Punem butonul in stare de "LOADING"
+            setPumpButtonUI("LOADING");
+        }
+
+        function setPumpButtonUI(state) {
+            if (state === "ON") {
+                pumpBtn.innerText = "POMPĂ PORNITĂ";
+                pumpBtn.classList.remove("loading");
                 pumpBtn.classList.add("active");
-            } else {
-                pumpBtn.innerText = "START";
+                pumpBtn.disabled = false;
+            } 
+            else if (state === "OFF") {
+                pumpBtn.innerText = "START POMPĂ";
                 pumpBtn.classList.remove("active");
+                pumpBtn.classList.remove("loading");
+                pumpBtn.disabled = false;
+            } 
+            else if (state === "LOADING") {
+                pumpBtn.innerText = "Se procesează...";
+                pumpBtn.classList.remove("active");
+                pumpBtn.classList.add("loading");
+                pumpBtn.disabled = true; // Blocam click-ul
             }
         }
     </script>
