@@ -313,8 +313,8 @@
                     if(data.humidity) updateValue("umiditate", data.humidity.toFixed(1) + " %");
                     
                     if(data.soil) {
-                        const valoareUscat = 2047; // Valoarea cand e in aer (0%)
-                        const valoareUd = 880;     // Valoarea cand e in apa (100%)
+                        const valoareUscat = 4095; // Valoarea cand e in aer (0%)
+                        const valoareUd = 1800;     // Valoarea cand e in apa (100%)
 
                         // Formula de mapare inversă
                         let procent = ( (valoareUscat - data.soil) / (valoareUscat - valoareUd) ) * 100;
@@ -395,4 +395,5 @@
     </script>
 </body>
 </html>
+
 
