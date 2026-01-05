@@ -11,7 +11,7 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/paho-mqtt/1.0.1/mqttws31.min.js" type="text/javascript"></script>
 
     <style>
-        /* --- STILURILE RAMAN NESCHIMBATE --- */
+        /* --- STILURILE SUNT IDENTICE --- */
         :root {
             --glass-bg: rgba(255, 255, 255, 0.1);
             --glass-border: 1px solid rgba(255, 255, 255, 0.2);
@@ -57,7 +57,6 @@
         .label { font-size: 1rem; opacity: 0.8; text-transform: uppercase; margin-bottom: 10px; }
         .value { font-size: 2.5rem; font-weight: 600; }
 
-        /* Meniu Dropdown */
         .custom-select {
             width: 100%; padding: 12px; margin-bottom: 15px; background: rgba(0, 0, 0, 0.3);
             border: 1px solid rgba(255, 255, 255, 0.3); border-radius: 10px; color: white;
@@ -65,7 +64,6 @@
         }
         .custom-select option { background-color: #2d3436; color: white; }
 
-        /* Buton Trimite */
         .btn-pump {
             background: var(--accent-pump); color: #2d3436; border: none; padding: 12px 30px;
             border-radius: 30px; font-family: 'Poppins', sans-serif; font-weight: 600; font-size: 1rem;
@@ -138,13 +136,14 @@
     </div>
 
     <script>
+        // --- CONFIGURARE ---
         const MQTT_HOST = "45529ea6f341410aa5a4fd3d6d0509b8.s1.eu.hivemq.cloud"; 
         const MQTT_PORT = 8884;
         const MQTT_USER = "esp_1";
         const MQTT_PASS = "Oananebunamea12!";
         
-        const MQTT_TOPIC_SOL     = "esp/device1/data"; 
-        const MQTT_TOPIC_AER     = "esp/device2/data"; 
+        // --- MODIFICARE: Folosim un singur topic de date pentru tot ---
+        const MQTT_TOPIC_DATA    = "esp/device1/data"; 
         const MQTT_TOPIC_CMD     = "esp32/cmd"; 
         const MQTT_TOPIC_CONFIRM = "esp/device1/confirm";
         
@@ -193,9 +192,8 @@
 
         function onConnect() {
             setStatus("connected", "Conectat. Aștept date...");
-            client.subscribe(MQTT_TOPIC_SOL);
-            client.subscribe(MQTT_TOPIC_AER);
-            client.subscribe(MQTT_TOPIC_CONFIRM);
+            client.subscribe(MQTT_TOPIC_DATA);    // Ascultam datele
+            client.subscribe(MQTT_TOPIC_CONFIRM); // Ascultam confirmarile
         }
 
         function onFailure(responseObject) {
@@ -215,13 +213,23 @@
             try {
                 const data = JSON.parse(payload);
                 
-                if (topic === MQTT_TOPIC_SOL) {
+                // --- AICI ESTE SCHIMBAREA MAJORA ---
+                // Verificam daca mesajul vine pe topicul "esp/device1/data"
+                if (topic === MQTT_TOPIC_DATA) {
+                    
+                    // 1. Actualizare Sol
                     if(data.soil_pct !== undefined) updateValue("sol", parseInt(data.soil_pct) + " %");
+                    
+                    // 2. Actualizare Temperatura (ACUM E IN ACELASI BLOC)
+                    if(data.temp !== undefined) updateValue("temperatura", parseFloat(data.temp).toFixed(1) + " °C");
+                    
+                    // 3. Actualizare Umiditate (ACUM E IN ACELASI BLOC)
+                    if(data.humidity !== undefined) updateValue("umiditate", parseFloat(data.humidity).toFixed(1) + " %");
+
+                    // 4. Actualizare Status Pompa
                     if(data.pump !== undefined) updatePumpStatusLabel(data.pump == 1 || data.pump === true);
                     
-                    // --- AICI ESTE FIX-UL PENTRU TIMP ---
-                    // Daca ESP-ul a trimis timpul lui ("ts"), il folosim.
-                    // Altfel, fallback la ora browserului.
+                    // 5. Timpul
                     if (data.ts && data.ts > 0) {
                         lastUpdateTimestamp = data.ts * 1000;
                     } else {
@@ -235,11 +243,7 @@
                     setTimeout(() => { statusLed.style.boxShadow = ""; }, 200);
                 }
 
-                else if (topic === MQTT_TOPIC_AER) {
-                    if(data.temp !== undefined) updateValue("temperatura", parseFloat(data.temp).toFixed(1) + " °C");
-                    if(data.humidity !== undefined) updateValue("umiditate", parseFloat(data.humidity).toFixed(1) + " %");
-                }
-
+                // Confirmari comenzi
                 else if (topic === MQTT_TOPIC_CONFIRM) {
                     if (data.status.includes("ON") || data.status.includes("START")) {
                         updatePumpStatusLabel(true);
@@ -252,15 +256,17 @@
                     }
                 }
 
-            } catch (e) { console.error(e); }
+            } catch (e) { console.error("Eroare JSON:", e); }
         }
 
         function updateValue(elementId, text) {
             const el = document.getElementById(elementId);
-            el.innerText = text;
-            el.classList.remove("pulse-update");
-            void el.offsetWidth; 
-            el.classList.add("pulse-update");
+            if (el) {
+                el.innerText = text;
+                el.classList.remove("pulse-update");
+                void el.offsetWidth; 
+                el.classList.add("pulse-update");
+            }
         }
 
         function updatePumpStatusLabel(isOn) {
