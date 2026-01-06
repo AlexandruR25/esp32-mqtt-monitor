@@ -238,22 +238,33 @@
                 const data = JSON.parse(payload);
                 
                 if (topic === MQTT_TOPIC_DATA) {
-                    
+
                     if(data.soil_pct !== undefined) updateValue("sol", parseInt(data.soil_pct) + " %");
                     if(data.temp !== undefined) updateValue("temperatura", parseFloat(data.temp).toFixed(1) + " °C");
                     if(data.humidity !== undefined) updateValue("umiditate", parseFloat(data.humidity).toFixed(1) + " %");
                     if(data.pump !== undefined) updatePumpStatusLabel(data.pump == 1 || data.pump === true);
-                    
-                    // --- ACTUALIZARE BATERIE JOS ---
-                    // Verificam daca am primit cheile "tension" si "tens_percent"
+
                     if (data.tension !== undefined && data.tens_percent !== undefined) {
-                        // Formatam frumos: 🔋 4.12 V • 95%
-                        batStatusText.innerText = `🔋 ${parseFloat(data.tension).toFixed(2)} V • ${data.tens_percent}%`;
-                        
-                        // Schimbam culoarea daca e descarcata
-                        if(data.tens_percent < 20) batStatusText.style.color = "#ff7675"; // Rosu
-                        else batStatusText.style.color = "#fab1a0"; // Culoarea standard
+
+                        const tension = parseFloat(data.tension);
+
+        // DACA TENSIUNEA ESTE PESTE 4.5V ⟶ AFISAM "SE INCARCA"
+                    if (tension > 4.5) {
+                        batStatusText.innerText = `🔌 ${tension.toFixed(2)} V • Se încarcă`;
+                        batStatusText.style.color = "#74b9ff";   // Albastru (optional)
+                    } 
+                    else {
+            // AFISARE NORMALA
+                        batStatusText.innerText = `🔋 ${tension.toFixed(2)} V • ${data.tens_percent}%`;
+
+                    if(data.tens_percent < 20)
+                        batStatusText.style.color = "#ff7675"; // Rosu
+                    else
+                        batStatusText.style.color = "#fab1a0"; // Normal
+                        }
                     }
+                }
+
 
                     // 5. Timpul
                     if (data.ts && data.ts > 0) {
@@ -328,3 +339,4 @@
     </script>
 </body>
 </html>
+
